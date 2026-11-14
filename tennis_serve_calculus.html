@@ -1,0 +1,1398 @@
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Tennis Serve Physics</title>
+
+<style>
+/* Design Plan:
+   Layout: Split canvas (left: court visualization, right: controls/data panels)
+   Color: Court green base with tennis ball yellow accent, chalk white lines
+   Type: System font stack optimized for readability of math and data
+*/
+
+:root {
+  --court-green: #2d5a3d;
+  --court-green-dark: #1a3323;
+  --line-white: #f8f8f8;
+  --ball-yellow: #d4ff00;
+  --accent: #ff6b35;
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --text: #1a1a1a;
+  --text-secondary: #666666;
+  --border: #e0e0e0;
+  --success: #22c55e;
+  --warning: #eab308;
+  --error: #ef4444;
+  --derivative: #10b981;
+  --integral: #3b82f6;
+  --optimization: #f59e0b;
+  --diff-eq: #a855f7;
+  --related-rates: #f97316;
+
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --court-green: #1e3a28;
+    --court-green-dark: #0f1f15;
+    --line-white: #e8e8e8;
+    --ball-yellow: #c4ef00;
+    --accent: #ff8c69;
+    --bg: #0a0a0a;
+    --surface: #1a1a1a;
+    --text: #f0f0f0;
+    --text-secondary: #a0a0a0;
+    --border: #333333;
+    --success: #34d399;
+    --warning: #fbbf24;
+    --error: #f87171;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --court-green: #1e3a28;
+  --court-green-dark: #0f1f15;
+  --line-white: #e8e8e8;
+  --ball-yellow: #c4ef00;
+  --accent: #ff8c69;
+  --bg: #0a0a0a;
+  --surface: #1a1a1a;
+  --text: #f0f0f0;
+  --text-secondary: #a0a0a0;
+  --border: #333333;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --error: #f87171;
+  color-scheme: dark;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+body {
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--surface);
+}
+
+.app-header h1 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ball-icon {
+  width: 28px;
+  height: 28px;
+  background: var(--ball-yellow);
+  border-radius: 50%;
+  position: relative;
+}
+
+.ball-icon::before,
+.ball-icon::after {
+  content: "";
+  position: absolute;
+  background: var(--text);
+  opacity: 0.15;
+}
+
+.ball-icon::before {
+  width: 20px;
+  height: 2px;
+  top: 8px;
+  left: 4px;
+  transform: rotate(25deg);
+}
+
+.ball-icon::after {
+  width: 20px;
+  height: 2px;
+  bottom: 8px;
+  right: 4px;
+  transform: rotate(25deg);
+}
+
+.theme-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.theme-toggle:hover {
+  background: var(--border);
+}
+
+.main-container {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 420px;
+  gap: 0;
+  overflow: hidden;
+}
+
+.visualization-panel {
+  background: var(--court-green-dark);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.canvas-container {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 4px;
+}
+
+.animation-controls {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.control-btn {
+  background: var(--surface);
+  color: var(--text);
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.control-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.control-btn.primary {
+  background: var(--accent);
+  color: white;
+}
+
+.control-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.side-panel {
+  background: var(--surface);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+}
+
+.panel-section {
+  padding: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-section:last-child {
+  border-bottom: none;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.badge.derivative { background: var(--derivative); color: white; }
+.badge.integral { background: var(--integral); color: white; }
+.badge.optimization { background: var(--optimization); color: white; }
+.badge.diff-eq { background: var(--diff-eq); color: white; }
+.badge.related-rates { background: var(--related-rates); color: white; }
+
+.control-group {
+  margin-bottom: 20px;
+}
+
+.control-group:last-child {
+  margin-bottom: 0;
+}
+
+.control-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.control-value {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+input[type="range"] {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  outline: none;
+  -webkit-appearance: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+  transform: scale(1.2);
+}
+
+.toggle-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toggle-btn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.toggle-btn.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.toggle-btn:hover:not(.active) {
+  background: var(--border);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.stat-item {
+  background: var(--bg);
+  padding: 12px;
+  border-radius: 6px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.stat-unit {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin-left: 4px;
+}
+
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.status-indicator.in {
+  background: var(--success);
+  color: white;
+}
+
+.status-indicator.out {
+  background: var(--error);
+  color: white;
+}
+
+.equation-block {
+  background: var(--bg);
+  padding: 12px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.equation-block:last-child {
+  margin-bottom: 0;
+}
+
+.info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: help;
+  transition: all 0.2s;
+}
+
+.info-icon:hover {
+  background: var(--accent);
+  color: white;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.tab {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab:hover:not(.active) {
+  color: var(--text);
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+.chart-container {
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 16px;
+  height: 200px;
+}
+
+.mini-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 1024px) {
+  .main-container {
+    grid-template-columns: 1fr;
+    grid-template-rows: 60vh auto;
+  }
+
+  .side-panel {
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    padding: 12px 16px;
+  }
+
+  .app-header h1 {
+    font-size: 18px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .animation-controls {
+    padding: 12px 16px;
+  }
+
+  .control-btn {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+
+<div class="app-header">
+  <h1>
+    <div class="ball-icon"></div>
+    Tennis Serve Physics: A Calculus Exploration
+  </h1>
+  <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+    <span class="theme-icon">🌓</span> Toggle Theme
+  </button>
+</div>
+
+<div class="main-container">
+  <div class="visualization-panel">
+    <div class="canvas-container">
+      <canvas id="mainCanvas" width="1200" height="600"></canvas>
+    </div>
+    <div class="animation-controls">
+      <button class="control-btn primary" id="playBtn" onclick="toggleAnimation()">
+        <span id="playIcon">▶</span> <span id="playText">Play</span>
+      </button>
+      <button class="control-btn" onclick="resetAnimation()">↺ Reset</button>
+      <div style="display: flex; align-items: center; gap: 8px; color: var(--line-white); font-size: 14px;">
+        <span>Speed:</span>
+        <input type="range" id="animSpeed" min="0.25" max="2" step="0.25" value="1"
+               style="width: 100px;" oninput="updateAnimSpeed(this.value)">
+        <span id="speedDisplay" style="font-family: var(--font-mono); min-width: 40px;">1.0×</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="side-panel">
+    <div class="panel-section">
+      <div class="section-title">
+        <span class="badge derivative">Derivative</span>
+        Serve Parameters
+      </div>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>Initial Velocity</span>
+          <span class="control-value"><span id="velocityDisplay">180</span> km/h</span>
+        </div>
+        <input type="range" id="velocity" min="120" max="220" value="180"
+               oninput="updateParam('velocity', this.value)">
+      </div>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>Launch Angle</span>
+          <span class="control-value"><span id="angleDisplay">-2</span>°</span>
+        </div>
+        <input type="range" id="angle" min="-5" max="15" step="0.5" value="-2"
+               oninput="updateParam('angle', this.value)">
+      </div>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>Contact Height</span>
+          <span class="control-value"><span id="heightDisplay">2.5</span> m</span>
+        </div>
+        <input type="range" id="height" min="2.0" max="2.8" step="0.1" value="2.5"
+               oninput="updateParam('height', this.value)">
+      </div>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>Air Resistance</span>
+        </div>
+        <div class="toggle-group">
+          <button class="toggle-btn" id="airResOff" onclick="setAirResistance(false)">Off</button>
+          <button class="toggle-btn active" id="airResOn" onclick="setAirResistance(true)">On</button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>Spin Type</span>
+        </div>
+        <div class="toggle-group">
+          <button class="toggle-btn active" id="spinFlat" onclick="setSpinType('flat')">Flat</button>
+          <button class="toggle-btn" id="spinTop" onclick="setSpinType('topspin')">Topspin</button>
+          <button class="toggle-btn" id="spinSlice" onclick="setSpinType('slice')">Slice</button>
+        </div>
+      </div>
+
+      <div class="control-group" id="spinRateControl" style="display: none;">
+        <div class="control-label">
+          <span>Spin Rate</span>
+          <span class="control-value"><span id="spinDisplay">2500</span> rpm</span>
+        </div>
+        <input type="range" id="spinRate" min="0" max="5000" step="100" value="2500"
+               oninput="updateParam('spinRate', this.value)">
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-title">
+        <span class="badge integral">Integral</span>
+        Real-Time Measurements
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-label">Flight Time</div>
+          <div class="stat-value"><span id="flightTime">0.00</span><span class="stat-unit">s</span></div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Max Height</div>
+          <div class="stat-value"><span id="maxHeight">0.00</span><span class="stat-unit">m</span></div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Distance</div>
+          <div class="stat-value"><span id="distance">0.00</span><span class="stat-unit">m</span></div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Landing Speed</div>
+          <div class="stat-value"><span id="landSpeed">0.0</span><span class="stat-unit">km/h</span></div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Net Clearance</div>
+          <div class="stat-value"><span id="netClear">0.00</span><span class="stat-unit">m</span></div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Status</div>
+          <div class="stat-value">
+            <span class="status-indicator" id="statusBadge">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-title">
+        <span class="badge optimization">Optimization</span>
+        Mathematical Formulation
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('equations')">Equations</button>
+        <button class="tab" onclick="switchTab('graphs')">Graphs</button>
+        <button class="tab" onclick="switchTab('concepts')">Concepts</button>
+      </div>
+
+      <div class="tab-content active" id="equations">
+        <div class="equation-block">
+          <div style="margin-bottom: 8px; font-weight: 600; color: var(--text-secondary);">Position (Projectile Motion):</div>
+          <div>x(t) = v₀·cos(θ)·t</div>
+          <div>y(t) = h₀ + v₀·sin(θ)·t - ½gt²</div>
+        </div>
+
+        <div class="equation-block">
+          <div style="margin-bottom: 8px; font-weight: 600; color: var(--text-secondary);">Velocity (Derivatives):</div>
+          <div>vₓ(t) = dx/dt = v₀·cos(θ)</div>
+          <div>vᵧ(t) = dy/dt = v₀·sin(θ) - gt</div>
+          <div>v(t) = √(vₓ² + vᵧ²)</div>
+        </div>
+
+        <div class="equation-block">
+          <div style="margin-bottom: 8px; font-weight: 600; color: var(--text-secondary);">With Air Resistance:</div>
+          <div>dvₓ/dt = -(k/m)·vₓ·v</div>
+          <div>dvᵧ/dt = -g - (k/m)·vᵧ·v</div>
+          <div style="margin-top: 6px; font-size: 11px; color: var(--text-secondary);">where k = ½ρCₐA, v = |velocity|</div>
+        </div>
+      </div>
+
+      <div class="tab-content" id="graphs">
+        <div class="chart-container">
+          <canvas id="velocityChart" class="mini-canvas"></canvas>
+        </div>
+        <div style="text-align: center; font-size: 12px; color: var(--text-secondary); margin-top: -8px; margin-bottom: 16px;">
+          Velocity Components vs Time
+        </div>
+      </div>
+
+      <div class="tab-content" id="concepts">
+        <div style="display: flex; flex-direction: column; gap: 12px; font-size: 13px; line-height: 1.6;">
+          <div>
+            <div style="font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+              <span class="badge derivative" style="font-size: 9px;">Derivative</span>
+              Instantaneous Rate of Change
+            </div>
+            <div style="color: var(--text-secondary);">
+              Velocity is the derivative of position: v = dx/dt. Acceleration is the derivative of velocity: a = dv/dt.
+            </div>
+          </div>
+
+          <div>
+            <div style="font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+              <span class="badge integral" style="font-size: 9px;">Integral</span>
+              Accumulation
+            </div>
+            <div style="color: var(--text-secondary);">
+              Distance traveled is the integral of speed: d = ∫|v(t)|dt. Work done equals ∫F·ds.
+            </div>
+          </div>
+
+          <div>
+            <div style="font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+              <span class="badge optimization" style="font-size: 9px;">Optimization</span>
+              Finding Extrema
+            </div>
+            <div style="color: var(--text-secondary);">
+              Optimal angle maximizes range: dR/dθ = 0. Constrained by net clearance and service box.
+            </div>
+          </div>
+
+          <div>
+            <div style="font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+              <span class="badge diff-eq" style="font-size: 9px;">Diff Eq</span>
+              Motion with Drag
+            </div>
+            <div style="color: var(--text-secondary);">
+              Air resistance creates coupled differential equations solved via Runge-Kutta integration.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Physics constants (ITF Standard)
+const CONSTANTS = {
+  g: 9.81,              // m/s²
+  rho: 1.225,           // kg/m³ (air density at sea level)
+  ballMass: 0.0577,     // kg
+  ballRadius: 0.0335,   // m
+  ballArea: Math.PI * Math.pow(0.0335, 2),  // m²
+  Cd: 0.55,             // drag coefficient
+  CL: 0.25,             // lift coefficient (spin)
+  courtLength: 23.77,   // m
+  courtWidth: 8.23,     // m (singles)
+  netHeight: 0.914,     // m (center)
+  netDistance: 11.885,  // m from baseline
+  serviceBoxLength: 6.4 // m
+};
+
+// Simulation state
+let state = {
+  velocity: 180,        // km/h
+  angle: -2,            // degrees
+  height: 2.5,          // m
+  airResistance: true,
+  spinType: 'flat',
+  spinRate: 2500,       // rpm
+  animating: false,
+  animSpeed: 1.0,
+  trajectory: [],
+  currentTime: 0,
+  maxTime: 0
+};
+
+// Canvas setup
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+const velChart = document.getElementById('velocityChart');
+const velCtx = velChart.getContext('2d');
+
+// Utility: Convert km/h to m/s
+function kmhToMs(kmh) {
+  return kmh / 3.6;
+}
+
+// Utility: Convert degrees to radians
+function degToRad(deg) {
+  return deg * Math.PI / 180;
+}
+
+// Utility: Convert RPM to rad/s
+function rpmToRadS(rpm) {
+  return rpm * 2 * Math.PI / 60;
+}
+
+// Physics: Calculate trajectory using RK4 integration
+function calculateTrajectory(v0_kmh, angle_deg, h0, withDrag, spinType, spinRpm) {
+  const trajectory = [];
+  const v0 = kmhToMs(v0_kmh);
+  const theta = degToRad(angle_deg);
+  const omega = rpmToRadS(spinRpm);
+
+  // Initial conditions
+  let t = 0;
+  let x = 0;
+  let y = h0;
+  let vx = v0 * Math.cos(theta);
+  let vy = v0 * Math.sin(theta);
+
+  const dt = 0.005; // 5ms time step
+  const maxTime = 2.0; // Maximum 2 seconds
+
+  while (t < maxTime && y >= 0) {
+    trajectory.push({ t, x, y, vx, vy });
+
+    if (withDrag) {
+      // RK4 integration with air resistance and spin
+      const k1 = derivatives(vx, vy, omega, spinType);
+      const k2 = derivatives(vx + k1.ax * dt/2, vy + k1.ay * dt/2, omega, spinType);
+      const k3 = derivatives(vx + k2.ax * dt/2, vy + k2.ay * dt/2, omega, spinType);
+      const k4 = derivatives(vx + k3.ax * dt, vy + k3.ay * dt, omega, spinType);
+
+      vx += (k1.ax + 2*k2.ax + 2*k3.ax + k4.ax) * dt / 6;
+      vy += (k1.ay + 2*k2.ay + 2*k3.ay + k4.ay) * dt / 6;
+    } else {
+      // Simple projectile motion
+      vy -= CONSTANTS.g * dt;
+    }
+
+    x += vx * dt;
+    y += vy * dt;
+    t += dt;
+  }
+
+  return trajectory;
+}
+
+// Calculate accelerations due to drag and Magnus force
+function derivatives(vx, vy, omega, spinType) {
+  const v = Math.sqrt(vx * vx + vy * vy);
+
+  if (v === 0) {
+    return { ax: 0, ay: -CONSTANTS.g };
+  }
+
+  // Drag force
+  const dragCoef = 0.5 * CONSTANTS.rho * CONSTANTS.Cd * CONSTANTS.ballArea / CONSTANTS.ballMass;
+  const ax_drag = -dragCoef * vx * v;
+  const ay_drag = -dragCoef * vy * v;
+
+  // Magnus force (perpendicular to velocity)
+  let ax_magnus = 0;
+  let ay_magnus = 0;
+
+  if (spinType !== 'flat' && omega > 0) {
+    // Magnus force: F = (1/2) * rho * CL * A * r * omega * v
+    // Force is perpendicular to velocity, in direction of spin × velocity
+    const magnusCoef = 0.5 * CONSTANTS.rho * CONSTANTS.CL * CONSTANTS.ballArea * CONSTANTS.ballRadius / CONSTANTS.ballMass;
+    const magnusMag = magnusCoef * omega * v;
+
+    if (spinType === 'topspin') {
+      // Topspin: spin axis points to the right (in +z direction)
+      // Magnus force = omega × v points downward (perpendicular to forward velocity)
+      // This creates a force perpendicular to velocity: (-vy, vx) direction normalized
+      ax_magnus = magnusMag * (-vy) / v;
+      ay_magnus = magnusMag * (vx) / v;
+    } else if (spinType === 'slice') {
+      // Slice (backspin): spin axis points to the left (in -z direction)
+      // Magnus force points upward (opposite of topspin)
+      ax_magnus = magnusMag * (vy) / v;
+      ay_magnus = magnusMag * (-vx) / v;
+    }
+  }
+
+  return {
+    ax: ax_drag + ax_magnus,
+    ay: ay_drag + ay_magnus - CONSTANTS.g
+  };
+}
+
+// Calculate statistics from trajectory
+function calculateStats(trajectory) {
+  if (trajectory.length === 0) return null;
+
+  let maxHeight = 0;
+  let netClearance = 0;
+  let landingPoint = null;
+
+  for (let i = 0; i < trajectory.length; i++) {
+    const point = trajectory[i];
+    maxHeight = Math.max(maxHeight, point.y);
+
+    // Check net clearance
+    if (i > 0 && trajectory[i-1].x < CONSTANTS.netDistance && point.x >= CONSTANTS.netDistance) {
+      netClearance = point.y - CONSTANTS.netHeight;
+    }
+
+    // Find landing point
+    if (i > 0 && trajectory[i-1].y >= 0 && point.y < 0) {
+      // Interpolate exact landing point
+      const t = -trajectory[i-1].y / (point.y - trajectory[i-1].y);
+      landingPoint = {
+        x: trajectory[i-1].x + t * (point.x - trajectory[i-1].x),
+        vx: trajectory[i-1].vx + t * (point.vx - trajectory[i-1].vx),
+        vy: trajectory[i-1].vy + t * (point.vy - trajectory[i-1].vy),
+        t: trajectory[i-1].t + t * (point.t - trajectory[i-1].t)
+      };
+      break;
+    }
+  }
+
+  if (!landingPoint) return null;
+
+  const landingSpeed = Math.sqrt(landingPoint.vx ** 2 + landingPoint.vy ** 2) * 3.6; // km/h
+  const isIn = landingPoint.x >= CONSTANTS.netDistance &&
+               landingPoint.x <= CONSTANTS.netDistance + CONSTANTS.serviceBoxLength &&
+               netClearance > 0;
+
+  return {
+    flightTime: landingPoint.t,
+    maxHeight,
+    distance: landingPoint.x,
+    landingSpeed,
+    netClearance,
+    isIn
+  };
+}
+
+// Render the court and trajectory
+function render(animTime = null) {
+  const w = canvas.width;
+  const h = canvas.height;
+
+  // Clear canvas
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark' ||
+                 (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches &&
+                  document.documentElement.getAttribute('data-theme') !== 'light');
+
+  ctx.fillStyle = isDark ? getComputedStyle(document.documentElement).getPropertyValue('--court-green-dark').trim() :
+                           getComputedStyle(document.documentElement).getPropertyValue('--court-green').trim();
+  ctx.fillRect(0, 0, w, h);
+
+  // Calculate scaling
+  const courtLengthPx = w * 0.85;
+  const scale = courtLengthPx / CONSTANTS.courtLength;
+  const originX = w * 0.1;
+  const groundY = h * 0.75;
+
+  // Draw court lines
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--line-white').trim();
+  ctx.lineWidth = 2;
+
+  // Baseline
+  ctx.beginPath();
+  ctx.moveTo(originX, groundY);
+  ctx.lineTo(originX + CONSTANTS.courtLength * scale, groundY);
+  ctx.stroke();
+
+  // Net
+  ctx.lineWidth = 3;
+  const netX = originX + CONSTANTS.netDistance * scale;
+  const netHeight = CONSTANTS.netHeight * scale;
+  ctx.beginPath();
+  ctx.moveTo(netX, groundY);
+  ctx.lineTo(netX, groundY - netHeight);
+  ctx.stroke();
+
+  // Service box
+  ctx.lineWidth = 1;
+  ctx.setLineDash([5, 5]);
+  const serviceX = originX + CONSTANTS.netDistance * scale;
+  const serviceEndX = originX + (CONSTANTS.netDistance + CONSTANTS.serviceBoxLength) * scale;
+  ctx.beginPath();
+  ctx.moveTo(serviceX, groundY);
+  ctx.lineTo(serviceX, groundY - 30);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(serviceEndX, groundY);
+  ctx.lineTo(serviceEndX, groundY - 30);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Draw trajectory
+  if (state.trajectory.length > 0) {
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--ball-yellow').trim();
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+
+    let drawUpTo = state.trajectory.length;
+    if (animTime !== null && state.animating) {
+      // Find current point in animation
+      drawUpTo = 0;
+      for (let i = 0; i < state.trajectory.length; i++) {
+        if (state.trajectory[i].t <= animTime) {
+          drawUpTo = i + 1;
+        }
+      }
+    }
+
+    for (let i = 0; i < drawUpTo; i++) {
+      const point = state.trajectory[i];
+      const px = originX + point.x * scale;
+      const py = groundY - point.y * scale;
+
+      if (i === 0) {
+        ctx.moveTo(px, py);
+      } else {
+        ctx.lineTo(px, py);
+      }
+    }
+    ctx.stroke();
+
+    // Draw velocity vectors at key points
+    if (drawUpTo > 0 && !state.animating) {
+      const indicesToShow = [0, Math.floor(drawUpTo / 3), Math.floor(2 * drawUpTo / 3), drawUpTo - 1];
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+      ctx.lineWidth = 2;
+
+      for (const idx of indicesToShow) {
+        if (idx < drawUpTo) {
+          const point = state.trajectory[idx];
+          const px = originX + point.x * scale;
+          const py = groundY - point.y * scale;
+
+          const vScale = 0.3; // Scale down velocity vectors
+          const vx = point.vx * scale * vScale;
+          const vy = -point.vy * scale * vScale;
+
+          // Arrow
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + vx, py + vy);
+          ctx.stroke();
+
+          // Arrowhead
+          const angle = Math.atan2(vy, vx);
+          const headLen = 8;
+          ctx.beginPath();
+          ctx.moveTo(px + vx, py + vy);
+          ctx.lineTo(px + vx - headLen * Math.cos(angle - Math.PI / 6),
+                     py + vy - headLen * Math.sin(angle - Math.PI / 6));
+          ctx.moveTo(px + vx, py + vy);
+          ctx.lineTo(px + vx - headLen * Math.cos(angle + Math.PI / 6),
+                     py + vy - headLen * Math.sin(angle + Math.PI / 6));
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Draw ball at current position
+    if (drawUpTo > 0) {
+      const currentIdx = Math.min(drawUpTo - 1, state.trajectory.length - 1);
+      const point = state.trajectory[currentIdx];
+      const px = originX + point.x * scale;
+      const py = groundY - point.y * scale;
+
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--ball-yellow').trim();
+      ctx.beginPath();
+      ctx.arc(px, py, 8, 0, 2 * Math.PI);
+      ctx.fill();
+
+      // Ball shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+      ctx.beginPath();
+      ctx.ellipse(px, groundY + 5, 8, 3, 0, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }
+
+  // Draw labels
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--line-white').trim();
+  ctx.font = '12px ' + getComputedStyle(document.documentElement).getPropertyValue('--font-body').trim();
+  ctx.fillText('Baseline', originX, groundY + 20);
+  ctx.fillText('Net', netX - 15, groundY + 20);
+  ctx.fillText('Service Box', serviceEndX - 50, groundY + 20);
+}
+
+// Render velocity chart
+function renderVelocityChart() {
+  const canvas = velChart;
+  const ctx = velCtx;
+  const w = canvas.width = canvas.offsetWidth * 2;
+  const h = canvas.height = canvas.offsetHeight * 2;
+  ctx.scale(2, 2);
+
+  const actualW = w / 2;
+  const actualH = h / 2;
+
+  // Clear
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark' ||
+                 (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches &&
+                  document.documentElement.getAttribute('data-theme') !== 'light');
+
+  ctx.fillStyle = isDark ? '#1a1a1a' : '#fafafa';
+  ctx.fillRect(0, 0, actualW, actualH);
+
+  if (state.trajectory.length === 0) return;
+
+  // Find max/min values
+  let maxVx = -Infinity, minVx = Infinity;
+  let maxVy = -Infinity, minVy = Infinity;
+  let maxT = 0;
+
+  for (const point of state.trajectory) {
+    maxVx = Math.max(maxVx, point.vx);
+    minVx = Math.min(minVx, point.vx);
+    maxVy = Math.max(maxVy, point.vy);
+    minVy = Math.min(minVy, point.vy);
+    maxT = Math.max(maxT, point.t);
+  }
+
+  const padding = 40;
+  const graphW = actualW - 2 * padding;
+  const graphH = actualH - 2 * padding;
+
+  const maxV = Math.max(Math.abs(maxVx), Math.abs(minVx), Math.abs(maxVy), Math.abs(minVy));
+
+  // Draw axes
+  ctx.strokeStyle = isDark ? '#666' : '#ccc';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padding, padding);
+  ctx.lineTo(padding, padding + graphH);
+  ctx.lineTo(padding + graphW, padding + graphH);
+  ctx.stroke();
+
+  // Zero line
+  const zeroY = padding + graphH / 2;
+  ctx.setLineDash([2, 2]);
+  ctx.beginPath();
+  ctx.moveTo(padding, zeroY);
+  ctx.lineTo(padding + graphW, zeroY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Plot vx
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--derivative').trim();
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < state.trajectory.length; i++) {
+    const point = state.trajectory[i];
+    const x = padding + (point.t / maxT) * graphW;
+    const y = zeroY - (point.vx / maxV) * (graphH / 2) * 0.9;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Plot vy
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--integral').trim();
+  ctx.beginPath();
+  for (let i = 0; i < state.trajectory.length; i++) {
+    const point = state.trajectory[i];
+    const x = padding + (point.t / maxT) * graphW;
+    const y = zeroY - (point.vy / maxV) * (graphH / 2) * 0.9;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Labels
+  ctx.fillStyle = isDark ? '#f0f0f0' : '#1a1a1a';
+  ctx.font = '10px ' + getComputedStyle(document.documentElement).getPropertyValue('--font-body').trim();
+  ctx.fillText('t (s)', padding + graphW - 20, padding + graphH + 15);
+  ctx.fillText('v (m/s)', padding - 35, padding + 5);
+
+  // Legend
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--derivative').trim();
+  ctx.fillRect(padding + graphW - 80, padding + 10, 15, 3);
+  ctx.fillStyle = isDark ? '#f0f0f0' : '#1a1a1a';
+  ctx.fillText('vₓ', padding + graphW - 60, padding + 13);
+
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--integral').trim();
+  ctx.fillRect(padding + graphW - 80, padding + 25, 15, 3);
+  ctx.fillStyle = isDark ? '#f0f0f0' : '#1a1a1a';
+  ctx.fillText('vᵧ', padding + graphW - 60, padding + 28);
+}
+
+// Update simulation
+function updateSimulation() {
+  state.trajectory = calculateTrajectory(
+    state.velocity,
+    state.angle,
+    state.height,
+    state.airResistance,
+    state.spinType,
+    state.spinRate
+  );
+
+  if (state.trajectory.length > 0) {
+    state.maxTime = state.trajectory[state.trajectory.length - 1].t;
+  }
+
+  const stats = calculateStats(state.trajectory);
+  updateStats(stats);
+  render();
+  renderVelocityChart();
+}
+
+// Update statistics display
+function updateStats(stats) {
+  if (!stats) {
+    document.getElementById('flightTime').textContent = '0.00';
+    document.getElementById('maxHeight').textContent = '0.00';
+    document.getElementById('distance').textContent = '0.00';
+    document.getElementById('landSpeed').textContent = '0.0';
+    document.getElementById('netClear').textContent = '0.00';
+    const badge = document.getElementById('statusBadge');
+    badge.textContent = '—';
+    badge.className = 'status-indicator';
+    return;
+  }
+
+  document.getElementById('flightTime').textContent = stats.flightTime.toFixed(2);
+  document.getElementById('maxHeight').textContent = stats.maxHeight.toFixed(2);
+  document.getElementById('distance').textContent = stats.distance.toFixed(2);
+  document.getElementById('landSpeed').textContent = stats.landingSpeed.toFixed(1);
+  document.getElementById('netClear').textContent = stats.netClearance.toFixed(2);
+
+  const badge = document.getElementById('statusBadge');
+  if (stats.isIn) {
+    badge.textContent = '✓ IN';
+    badge.className = 'status-indicator in';
+  } else {
+    badge.textContent = '✗ OUT';
+    badge.className = 'status-indicator out';
+  }
+}
+
+// Animation loop
+let animationFrame = null;
+let lastTime = 0;
+
+function animate(timestamp) {
+  if (!state.animating) return;
+
+  const deltaTime = (timestamp - lastTime) / 1000; // Convert to seconds
+  lastTime = timestamp;
+
+  state.currentTime += deltaTime * state.animSpeed;
+
+  if (state.currentTime >= state.maxTime) {
+    state.currentTime = state.maxTime;
+    state.animating = false;
+    document.getElementById('playBtn').innerHTML = '<span id="playIcon">▶</span> <span id="playText">Replay</span>';
+  }
+
+  render(state.currentTime);
+
+  if (state.animating) {
+    animationFrame = requestAnimationFrame(animate);
+  }
+}
+
+// Control functions
+function updateParam(param, value) {
+  state[param] = parseFloat(value);
+  document.getElementById(param + 'Display').textContent =
+    param === 'velocity' ? Math.round(value) :
+    param === 'spinRate' ? Math.round(value) :
+    value;
+  updateSimulation();
+}
+
+function setAirResistance(enabled) {
+  state.airResistance = enabled;
+  document.getElementById('airResOff').classList.toggle('active', !enabled);
+  document.getElementById('airResOn').classList.toggle('active', enabled);
+  updateSimulation();
+}
+
+function setSpinType(type) {
+  state.spinType = type;
+  document.getElementById('spinFlat').classList.toggle('active', type === 'flat');
+  document.getElementById('spinTop').classList.toggle('active', type === 'topspin');
+  document.getElementById('spinSlice').classList.toggle('active', type === 'slice');
+  document.getElementById('spinRateControl').style.display = type === 'flat' ? 'none' : 'block';
+  updateSimulation();
+}
+
+function toggleAnimation() {
+  if (!state.animating) {
+    if (state.currentTime >= state.maxTime) {
+      state.currentTime = 0;
+    }
+    state.animating = true;
+    lastTime = performance.now();
+    document.getElementById('playBtn').innerHTML = '<span id="playIcon">⏸</span> <span id="playText">Pause</span>';
+    animationFrame = requestAnimationFrame(animate);
+  } else {
+    state.animating = false;
+    if (animationFrame) {
+      cancelAnimationFrame(animationFrame);
+    }
+    document.getElementById('playBtn').innerHTML = '<span id="playIcon">▶</span> <span id="playText">Play</span>';
+  }
+}
+
+function resetAnimation() {
+  state.currentTime = 0;
+  state.animating = false;
+  if (animationFrame) {
+    cancelAnimationFrame(animationFrame);
+  }
+  document.getElementById('playBtn').innerHTML = '<span id="playIcon">▶</span> <span id="playText">Play</span>';
+  render();
+}
+
+function updateAnimSpeed(value) {
+  state.animSpeed = parseFloat(value);
+  document.getElementById('speedDisplay').textContent = value + '×';
+}
+
+function switchTab(tabName) {
+  // Update tab buttons
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(tab => {
+    tab.classList.remove('active');
+  });
+  event.target.classList.add('active');
+
+  // Update tab content
+  const contents = document.querySelectorAll('.tab-content');
+  contents.forEach(content => {
+    content.classList.remove('active');
+  });
+  document.getElementById(tabName).classList.add('active');
+
+  if (tabName === 'graphs') {
+    renderVelocityChart();
+  }
+}
+
+function toggleTheme() {
+  const root = document.documentElement;
+  const current = root.getAttribute('data-theme');
+
+  if (current === 'dark') {
+    root.setAttribute('data-theme', 'light');
+  } else if (current === 'light') {
+    root.removeAttribute('data-theme');
+  } else {
+    root.setAttribute('data-theme', 'dark');
+  }
+
+  // Re-render with new theme
+  render(state.animating ? state.currentTime : null);
+  renderVelocityChart();
+}
+
+// Handle window resize
+window.addEventListener('resize', () => {
+  render(state.animating ? state.currentTime : null);
+  if (document.getElementById('graphs').classList.contains('active')) {
+    renderVelocityChart();
+  }
+});
+
+// Initial simulation
+updateSimulation();
+</script>
